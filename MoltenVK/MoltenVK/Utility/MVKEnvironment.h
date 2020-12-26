@@ -167,6 +167,7 @@
  */
 #define MVK_CONFIG_AUTO_GPU_CAPTURE_SCOPE_NONE		0
 #define MVK_CONFIG_AUTO_GPU_CAPTURE_SCOPE_DEVICE	1
+#define MVK_CONFIG_AUTO_GPU_CAPTURE_SCOPE_FRAME		2
 #ifndef MVK_CONFIG_AUTO_GPU_CAPTURE_SCOPE
 #   define MVK_CONFIG_AUTO_GPU_CAPTURE_SCOPE    	MVK_CONFIG_AUTO_GPU_CAPTURE_SCOPE_NONE
 #endif
@@ -203,6 +204,11 @@
 /** Substitute Metal 2D textures for Vulkan 1D images. Enabled by default. */
 #ifndef MVK_CONFIG_TEXTURE_1D_AS_2D
 #   define MVK_CONFIG_TEXTURE_1D_AS_2D    1
+#endif
+
+/** Support Metal argument buffers. Enabled by default. */
+#ifndef MVK_CONFIG_USE_METAL_ARGUMENT_BUFFERS
+#   define MVK_CONFIG_USE_METAL_ARGUMENT_BUFFERS    1
 #endif
 
 /**

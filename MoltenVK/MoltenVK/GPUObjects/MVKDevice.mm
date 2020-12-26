@@ -377,6 +377,7 @@ void MVKPhysicalDevice::getProperties(VkPhysicalDeviceProperties2* properties) {
                 break;
             }
 			case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_PROPERTIES_EXT: {
+				bool isTier2 = _metalFeatures.argumentBuffers && _mtlDevice.argumentBuffersSupport == MTLArgumentBuffersTier2;
 				auto* pDescIdxProps = (VkPhysicalDeviceDescriptorIndexingPropertiesEXT*)next;
 				pDescIdxProps->maxUpdateAfterBindDescriptorsInAllPools				= kMVKUndefinedLargeUInt32;
 				pDescIdxProps->shaderUniformBufferArrayNonUniformIndexingNative		= false;
@@ -386,20 +387,20 @@ void MVKPhysicalDevice::getProperties(VkPhysicalDeviceProperties2* properties) {
 				pDescIdxProps->shaderInputAttachmentArrayNonUniformIndexingNative	= _metalFeatures.arrayOfTextures;
 				pDescIdxProps->robustBufferAccessUpdateAfterBind					= _features.robustBufferAccess;
 				pDescIdxProps->quadDivergentImplicitLod								= false;
-				pDescIdxProps->maxPerStageDescriptorUpdateAfterBindSamplers			= _properties.limits.maxPerStageDescriptorSamplers;
-				pDescIdxProps->maxPerStageDescriptorUpdateAfterBindUniformBuffers	= _properties.limits.maxPerStageDescriptorUniformBuffers;
-				pDescIdxProps->maxPerStageDescriptorUpdateAfterBindStorageBuffers	= _properties.limits.maxPerStageDescriptorStorageBuffers;
-				pDescIdxProps->maxPerStageDescriptorUpdateAfterBindSampledImages	= _properties.limits.maxPerStageDescriptorSampledImages;
-				pDescIdxProps->maxPerStageDescriptorUpdateAfterBindStorageImages	= _properties.limits.maxPerStageDescriptorStorageImages;
+				pDescIdxProps->maxPerStageDescriptorUpdateAfterBindSamplers			= isTier2 ? 2048 : _properties.limits.maxPerStageDescriptorSamplers;
+				pDescIdxProps->maxPerStageDescriptorUpdateAfterBindUniformBuffers	= isTier2 ? 500000 : _properties.limits.maxPerStageDescriptorUniformBuffers;
+				pDescIdxProps->maxPerStageDescriptorUpdateAfterBindStorageBuffers	= isTier2 ? 500000 : _properties.limits.maxPerStageDescriptorStorageBuffers;
+				pDescIdxProps->maxPerStageDescriptorUpdateAfterBindSampledImages	= isTier2 ? 500000 : _properties.limits.maxPerStageDescriptorSampledImages;
+				pDescIdxProps->maxPerStageDescriptorUpdateAfterBindStorageImages	= isTier2 ? 500000 : _properties.limits.maxPerStageDescriptorStorageImages;
 				pDescIdxProps->maxPerStageDescriptorUpdateAfterBindInputAttachments	= _properties.limits.maxPerStageDescriptorInputAttachments;
-				pDescIdxProps->maxPerStageUpdateAfterBindResources					= _properties.limits.maxPerStageResources;
-				pDescIdxProps->maxDescriptorSetUpdateAfterBindSamplers				= _properties.limits.maxDescriptorSetSamplers;
-				pDescIdxProps->maxDescriptorSetUpdateAfterBindUniformBuffers		= _properties.limits.maxDescriptorSetUniformBuffers;
-				pDescIdxProps->maxDescriptorSetUpdateAfterBindUniformBuffersDynamic	= _properties.limits.maxDescriptorSetUniformBuffersDynamic;
-				pDescIdxProps->maxDescriptorSetUpdateAfterBindStorageBuffers		= _properties.limits.maxDescriptorSetStorageBuffers;
-				pDescIdxProps->maxDescriptorSetUpdateAfterBindStorageBuffersDynamic	= _properties.limits.maxDescriptorSetStorageBuffersDynamic;
-				pDescIdxProps->maxDescriptorSetUpdateAfterBindSampledImages			= _properties.limits.maxDescriptorSetSampledImages;
-				pDescIdxProps->maxDescriptorSetUpdateAfterBindStorageImages			= _properties.limits.maxDescriptorSetStorageImages;
+				pDescIdxProps->maxPerStageUpdateAfterBindResources					= isTier2 ? 500000 : _properties.limits.maxPerStageResources;
+				pDescIdxProps->maxDescriptorSetUpdateAfterBindSamplers				= isTier2 ? 2048 : _properties.limits.maxDescriptorSetSamplers;
+				pDescIdxProps->maxDescriptorSetUpdateAfterBindUniformBuffers		= isTier2 ? 500000 : _properties.limits.maxDescriptorSetUniformBuffers;
+				pDescIdxProps->maxDescriptorSetUpdateAfterBindUniformBuffersDynamic	= isTier2 ? 500000 : _properties.limits.maxDescriptorSetUniformBuffersDynamic;
+				pDescIdxProps->maxDescriptorSetUpdateAfterBindStorageBuffers		= isTier2 ? 500000 : _properties.limits.maxDescriptorSetStorageBuffers;
+				pDescIdxProps->maxDescriptorSetUpdateAfterBindStorageBuffersDynamic	= isTier2 ? 500000 : _properties.limits.maxDescriptorSetStorageBuffersDynamic;
+				pDescIdxProps->maxDescriptorSetUpdateAfterBindSampledImages			= isTier2 ? 500000 : _properties.limits.maxDescriptorSetSampledImages;
+				pDescIdxProps->maxDescriptorSetUpdateAfterBindStorageImages			= isTier2 ? 500000 : _properties.limits.maxDescriptorSetStorageImages;
 				pDescIdxProps->maxDescriptorSetUpdateAfterBindInputAttachments		= _properties.limits.maxDescriptorSetInputAttachments;
 				break;
 			}
@@ -456,54 +457,51 @@ void MVKPhysicalDevice::getProperties(VkPhysicalDeviceProperties2* properties) {
 // Populates the device ID properties structure
 void MVKPhysicalDevice::populate(VkPhysicalDeviceIDProperties* pDevIdProps) {
 
-	uint8_t* uuid;
 	size_t uuidComponentOffset;
 
 	//  ---- Device ID ----------------------------------------------
-	uuid = pDevIdProps->deviceUUID;
 	uuidComponentOffset = 0;
-	mvkClear(uuid, VK_UUID_SIZE);
+	mvkClear(&pDevIdProps->deviceUUID);
 
 	// First 4 bytes contains GPU vendor ID
 	uint32_t vendorID = _properties.vendorID;
-	*(uint32_t*)&uuid[uuidComponentOffset] = NSSwapHostIntToBig(vendorID);
+	*(uint32_t*)&pDevIdProps->deviceUUID[uuidComponentOffset] = NSSwapHostIntToBig(vendorID);
 	uuidComponentOffset += sizeof(vendorID);
 
 	// Next 4 bytes contains GPU device ID
 	uint32_t deviceID = _properties.deviceID;
-	*(uint32_t*)&uuid[uuidComponentOffset] = NSSwapHostIntToBig(deviceID);
+	*(uint32_t*)&pDevIdProps->deviceUUID[uuidComponentOffset] = NSSwapHostIntToBig(deviceID);
 	uuidComponentOffset += sizeof(deviceID);
 
 	// Last 8 bytes contain the GPU registry ID
 	uint64_t regID = mvkGetRegistryID(_mtlDevice);
-	*(uint64_t*)&uuid[uuidComponentOffset] = NSSwapHostLongLongToBig(regID);
+	*(uint64_t*)&pDevIdProps->deviceUUID[uuidComponentOffset] = NSSwapHostLongLongToBig(regID);
 	uuidComponentOffset += sizeof(regID);
 
 
 	// ---- Driver ID ----------------------------------------------
-	uuid = pDevIdProps->driverUUID;
 	uuidComponentOffset = 0;
-	mvkClear(uuid, VK_UUID_SIZE);
+	mvkClear(&pDevIdProps->driverUUID);
 
 	// First 4 bytes contains MoltenVK prefix
 	const char* mvkPfx = "MVK";
 	size_t mvkPfxLen = strlen(mvkPfx);
-	mvkCopy(&uuid[uuidComponentOffset], (uint8_t*)mvkPfx, mvkPfxLen);
+	mvkCopy(&pDevIdProps->driverUUID[uuidComponentOffset], (uint8_t*)mvkPfx, mvkPfxLen);
 	uuidComponentOffset += mvkPfxLen + 1;
 
 	// Next 4 bytes contains MoltenVK version
 	uint32_t mvkVersion = MVK_VERSION;
-	*(uint32_t*)&uuid[uuidComponentOffset] = NSSwapHostIntToBig(mvkVersion);
+	*(uint32_t*)&pDevIdProps->driverUUID[uuidComponentOffset] = NSSwapHostIntToBig(mvkVersion);
 	uuidComponentOffset += sizeof(mvkVersion);
 
 	// Next 4 bytes contains highest Metal feature set supported by this device
 	uint32_t mtlFeatSet = getHighestMTLFeatureSet();
-	*(uint32_t*)&uuid[uuidComponentOffset] = NSSwapHostIntToBig(mtlFeatSet);
+	*(uint32_t*)&pDevIdProps->driverUUID[uuidComponentOffset] = NSSwapHostIntToBig(mtlFeatSet);
 	uuidComponentOffset += sizeof(mtlFeatSet);
 
 
 	// ---- LUID ignored for Metal devices ------------------------
-	mvkClear(pDevIdProps->deviceLUID, VK_LUID_SIZE);
+	mvkClear(&pDevIdProps->deviceLUID);
 	pDevIdProps->deviceNodeMask = 0;
 	pDevIdProps->deviceLUIDValid = VK_FALSE;
 }
@@ -1111,8 +1109,8 @@ VkResult MVKPhysicalDevice::getMemoryProperties(VkPhysicalDeviceMemoryProperties
 		switch (next->sType) {
 			case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_BUDGET_PROPERTIES_EXT: {
 				auto* budgetProps = (VkPhysicalDeviceMemoryBudgetPropertiesEXT*)next;
-				mvkClear(budgetProps->heapBudget, VK_MAX_MEMORY_HEAPS);
-				mvkClear(budgetProps->heapUsage, VK_MAX_MEMORY_HEAPS);
+				mvkClear(&budgetProps->heapBudget);
+				mvkClear(&budgetProps->heapUsage);
 				budgetProps->heapBudget[0] = (VkDeviceSize)getRecommendedMaxWorkingSetSize();
 				budgetProps->heapUsage[0] = (VkDeviceSize)getCurrentAllocatedSize();
 				if (!getHasUnifiedMemory()) {
@@ -1144,7 +1142,8 @@ MVKPhysicalDevice::MVKPhysicalDevice(MVKInstance* mvkInstance, id<MTLDevice> mtl
 	initExtensions();
 	initMemoryProperties();
 	initExternalMemoryProperties();
-	logGPUInfo();
+	initPipelineCacheUUID();			// Call penultimate
+	logGPUInfo();						// Call last
 }
 
 // Initializes the physical device properties (except limits).
@@ -1155,7 +1154,6 @@ void MVKPhysicalDevice::initProperties() {
 	_properties.driverVersion = MVK_VERSION;
 
 	initGPUInfoProperties();
-	initPipelineCacheUUID();
 }
 
 // Initializes the Metal-specific physical device features of this instance.
@@ -1214,6 +1212,7 @@ void MVKPhysicalDevice::initMetalFeatures() {
 	if (supportsMTLFeatureSet(tvOS_GPUFamily1_v3)) {
 		_metalFeatures.mslVersionEnum = MTLLanguageVersion2_0;
         _metalFeatures.renderWithoutAttachments = true;
+		MVK_SET_FROM_ENV_OR_BUILD_BOOL(_metalFeatures.argumentBuffers, MVK_CONFIG_USE_METAL_ARGUMENT_BUFFERS);
 	}
 
 	if (supportsMTLFeatureSet(tvOS_GPUFamily1_v4)) {
@@ -1287,6 +1286,7 @@ void MVKPhysicalDevice::initMetalFeatures() {
     if (supportsMTLFeatureSet(iOS_GPUFamily1_v4)) {
 		_metalFeatures.mslVersionEnum = MTLLanguageVersion2_0;
         _metalFeatures.renderWithoutAttachments = true;
+		MVK_SET_FROM_ENV_OR_BUILD_BOOL(_metalFeatures.argumentBuffers, MVK_CONFIG_USE_METAL_ARGUMENT_BUFFERS);
     }
 
 	if (supportsMTLFeatureSet(iOS_GPUFamily1_v5)) {
@@ -1395,6 +1395,7 @@ void MVKPhysicalDevice::initMetalFeatures() {
 		_metalFeatures.presentModeImmediate = true;
 		_metalFeatures.fences = true;
 		_metalFeatures.nonUniformThreadgroups = true;
+		MVK_SET_FROM_ENV_OR_BUILD_BOOL(_metalFeatures.argumentBuffers, MVK_CONFIG_USE_METAL_ARGUMENT_BUFFERS);
     }
 
     if (supportsMTLFeatureSet(macOS_GPUFamily1_v4)) {
@@ -2336,24 +2337,26 @@ void MVKPhysicalDevice::initGPUInfoProperties() {
 void MVKPhysicalDevice::initPipelineCacheUUID() {
 
 	// Clear the UUID
-	mvkClear(&_properties.pipelineCacheUUID, VK_UUID_SIZE);
+	mvkClear(&_properties.pipelineCacheUUID);
 
 	size_t uuidComponentOffset = 0;
 
-	// First 4 bytes contains MoltenVK version
-	uint32_t mvkVersion = MVK_VERSION;
-	*(uint32_t*)&_properties.pipelineCacheUUID[uuidComponentOffset] = NSSwapHostIntToBig(mvkVersion);
-	uuidComponentOffset += sizeof(mvkVersion);
+	// First 8 bytes contain the first part of the MoltenVK Git revision
+	uint64_t mvkRev = getMoltenVKGitRevision();
+	*(uint64_t*)&_properties.pipelineCacheUUID[uuidComponentOffset] = NSSwapHostLongLongToBig(mvkRev);
+	uuidComponentOffset += sizeof(mvkRev);
 
 	// Next 4 bytes contains highest Metal feature set supported by this device
 	uint32_t mtlFeatSet = getHighestMTLFeatureSet();
 	*(uint32_t*)&_properties.pipelineCacheUUID[uuidComponentOffset] = NSSwapHostIntToBig(mtlFeatSet);
 	uuidComponentOffset += sizeof(mtlFeatSet);
 
-	// Last 8 bytes contain the first part of the MoltenVK Git revision
-	uint64_t mvkRev = getMoltenVKGitRevision();
-	*(uint64_t*)&_properties.pipelineCacheUUID[uuidComponentOffset] = NSSwapHostLongLongToBig(mvkRev);
-	uuidComponentOffset += sizeof(mvkRev);
+	// Last 4 bytes contains flags based on enabled Metal features that
+	// might affect the contents of the pipeline cache (mostly MSL content).
+	uint32_t mtlFeatures = 0;
+	mtlFeatures |= ((bool)_metalFeatures.argumentBuffers) << 0;
+	*(uint32_t*)&_properties.pipelineCacheUUID[uuidComponentOffset] = NSSwapHostIntToBig(mtlFeatures);
+	uuidComponentOffset += sizeof(mtlFeatures);
 }
 
 uint32_t MVKPhysicalDevice::getHighestMTLFeatureSet() {
@@ -2953,7 +2956,7 @@ void MVKDevice::getDescriptorVariableDescriptorCountLayoutSupport(const VkDescri
 }
 
 VkResult MVKDevice::getDeviceGroupPresentCapabilities(VkDeviceGroupPresentCapabilitiesKHR* pDeviceGroupPresentCapabilities) {
-	mvkClear(pDeviceGroupPresentCapabilities->presentMask, VK_MAX_DEVICE_GROUP_SIZE);
+	mvkClear(&pDeviceGroupPresentCapabilities->presentMask);
 	pDeviceGroupPresentCapabilities->presentMask[0] = 0x1;
 
 	pDeviceGroupPresentCapabilities->modes = VK_DEVICE_GROUP_PRESENT_MODE_LOCAL_BIT_KHR;
@@ -3688,40 +3691,7 @@ MVKDevice::MVKDevice(MVKPhysicalDevice* physicalDevice, const VkDeviceCreateInfo
 
 	_commandResourceFactory = new MVKCommandResourceFactory(this);
 
-// This code will be refactored in an upcoming release, but for now,
-// suppress deprecation warnings for startCaptureWithDevice: on MacCatalyst.
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wdeprecated-declarations"
-	if (getInstance()->_autoGPUCaptureScope == MVK_CONFIG_AUTO_GPU_CAPTURE_SCOPE_DEVICE) {
-		MTLCaptureManager *captureMgr = [MTLCaptureManager sharedCaptureManager];
-		if (!getInstance()->_autoGPUCaptureOutputFile.empty()) {
-			if ( ![captureMgr respondsToSelector: @selector(supportsDestination:)] ||
-				 ![captureMgr supportsDestination: MTLCaptureDestinationGPUTraceDocument] ) {
-				reportError(VK_ERROR_FEATURE_NOT_PRESENT, "Capturing GPU traces to a file requires macOS 10.15 or iOS 13.0. Falling back to Xcode GPU capture.");
-				[captureMgr startCaptureWithDevice: getMTLDevice()];
-			} else {
-				NSError *err = nil;
-				NSString *path, *expandedPath;
-				MTLCaptureDescriptor *captureDesc = [MTLCaptureDescriptor new];
-				captureDesc.captureObject = getMTLDevice();
-				captureDesc.destination = MTLCaptureDestinationGPUTraceDocument;
-				path = [NSString stringWithUTF8String: getInstance()->_autoGPUCaptureOutputFile.c_str()];
-				expandedPath = path.stringByExpandingTildeInPath;
-				captureDesc.outputURL = [NSURL fileURLWithPath: expandedPath];
-				if (![captureMgr startCaptureWithDescriptor: captureDesc error: &err]) {
-					reportError(VK_ERROR_INITIALIZATION_FAILED, "Failed to start GPU capture session to %s (Error code %li): %s", getInstance()->_autoGPUCaptureOutputFile.c_str(), (long)err.code, err.localizedDescription.UTF8String);
-					[err release];
-				}
-				[captureDesc.outputURL release];
-				[captureDesc release];
-				[expandedPath release];
-				[path release];
-			}
-		} else {
-			[captureMgr startCaptureWithDevice: getMTLDevice()];
-		}
-	}
-#pragma clang diagnostic pop
+	getInstance()->startAutoGPUCapture(MVK_CONFIG_AUTO_GPU_CAPTURE_SCOPE_DEVICE, getMTLDevice());
 
 	MVKLogInfo("Created VkDevice to run on GPU %s with the following %d Vulkan extensions enabled:%s",
 			   _pProperties->deviceName,
@@ -4099,9 +4069,7 @@ MVKDevice::~MVKDevice() {
     [_globalVisibilityResultMTLBuffer release];
 	[_defaultMTLSamplerState release];
 
-	if (getInstance()->_autoGPUCaptureScope == MVK_CONFIG_AUTO_GPU_CAPTURE_SCOPE_DEVICE) {
-		[[MTLCaptureManager sharedCaptureManager] stopCapture];
-	}
+	getInstance()->stopAutoGPUCapture(MVK_CONFIG_AUTO_GPU_CAPTURE_SCOPE_DEVICE);
 
 	mvkDestroyContainerContents(_privateDataSlots);
 }

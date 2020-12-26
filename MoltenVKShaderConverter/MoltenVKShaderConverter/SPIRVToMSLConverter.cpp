@@ -31,10 +31,17 @@ using namespace SPIRV_CROSS_NAMESPACE;
 #pragma mark -
 #pragma mark SPIRVToMSLConversionConfiguration
 
+// Returns whether the container contains an item equal to the value.
+template<class C, class T>
+bool contains(const C& container, const T& val) {
+	for (const T& cVal : container) { if (cVal == val) { return true; } }
+	return false;
+}
+
 // Returns whether the vector contains the value (using a matches(T&) comparison member function). */
-template<class T>
-bool containsMatching(const vector<T>& vec, const T& val) {
-    for (const T& vecVal : vec) { if (vecVal.matches(val)) { return true; } }
+template<class C, class T>
+bool containsMatching(const C& container, const T& val) {
+    for (const T& cVal : container) { if (cVal.matches(val)) { return true; } }
     return false;
 }
 
@@ -143,6 +150,12 @@ MVK_PUBLIC_SYMBOL bool mvk::MSLResourceBinding::matches(const MSLResourceBinding
 	return true;
 }
 
+MVK_PUBLIC_SYMBOL bool mvk::DescriptorBinding::matches(const mvk::DescriptorBinding& other) const {
+	if (descriptorSet != other.descriptorSet) { return false; }
+	if (binding != other.binding) { return false; }
+	return true;
+}
+
 MVK_PUBLIC_SYMBOL bool SPIRVToMSLConversionConfiguration::stageSupportsVertexAttributes() const {
 	return (options.entryPointStage == spv::ExecutionModelVertex ||
 			options.entryPointStage == spv::ExecutionModelTessellationControl ||
@@ -181,6 +194,14 @@ MVK_PUBLIC_SYMBOL bool SPIRVToMSLConversionConfiguration::matches(const SPIRVToM
     for (const auto& rb : resourceBindings) {
         if (rb.isUsedByShader && !containsMatching(other.resourceBindings, rb)) { return false; }
     }
+
+	for (uint32_t dsIdx : discreteDescriptorSets) {
+		if ( !contains(other.discreteDescriptorSets, dsIdx)) { return false; }
+	}
+
+	for (const auto& db : inlineUniformBlocks) {
+		if ( !containsMatching(other.inlineUniformBlocks, db)) { return false; }
+	}
 
     return true;
 }
@@ -275,6 +296,18 @@ MVK_PUBLIC_SYMBOL bool SPIRVToMSLConverter::convert(SPIRVToMSLConversionConfigur
 			if (rb.requiresConstExprSampler) {
 				pMSLCompiler->remap_constexpr_sampler_by_binding(rbb.desc_set, rbb.binding, rb.constExprSampler);
 			}
+		}
+
+		// Add any descriptor sets that are not using Metal argument buffers.
+		// This only has an effect if SPIRVToMSLConversionConfiguration::options::mslOptions::argument_buffers is enabled.
+		for (uint32_t dsIdx : context.discreteDescriptorSets) {
+			pMSLCompiler->add_discrete_descriptor_set(dsIdx);
+		}
+
+		// Add any inline block bindings.
+		// This only has an effect if SPIRVToMSLConversionConfiguration::options::mslOptions::argument_buffers is enabled.
+		for (auto& db : context.inlineUniformBlocks) {
+			pMSLCompiler->add_inline_uniform_block(db.descriptorSet, db.binding);
 		}
 
 		_msl = pMSLCompiler->compile();

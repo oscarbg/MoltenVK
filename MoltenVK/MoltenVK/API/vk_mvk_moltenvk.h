@@ -50,12 +50,12 @@ typedef unsigned long MTLLanguageVersion;
  */
 #define MVK_VERSION_MAJOR   1
 #define MVK_VERSION_MINOR   1
-#define MVK_VERSION_PATCH   1
+#define MVK_VERSION_PATCH   2
 
 #define MVK_MAKE_VERSION(major, minor, patch)    (((major) * 10000) + ((minor) * 100) + (patch))
 #define MVK_VERSION     MVK_MAKE_VERSION(MVK_VERSION_MAJOR, MVK_VERSION_MINOR, MVK_VERSION_PATCH)
 
-#define VK_MVK_MOLTENVK_SPEC_VERSION            29
+#define VK_MVK_MOLTENVK_SPEC_VERSION            30
 #define VK_MVK_MOLTENVK_EXTENSION_NAME          "VK_MVK_moltenvk"
 
 /**
@@ -137,13 +137,25 @@ typedef unsigned long MTLLanguageVersion;
  *     Xcode user interface.
  *       0: No automatic GPU capture.
  *       1: Capture all GPU commands issued during the lifetime of the VkDevice.
- *     If MVK_CONFIG_AUTO_GPU_CAPTURE_OUTPUT_FILE is also set, it is a filename where the automatic
- *     GPU capture should be saved. In this case, the Xcode scheme need not have Metal GPU capture
- *     enabled, and in fact the app need not be run under Xcode's control at all. This is useful
- *     in case the app cannot be run under Xcode's control. A path starting with '~' can be used
- *     to place it in a user's home directory, as in the shell. This feature requires Metal 3.0
- *     (macOS 10.15, iOS 13).
+ *       2: Capture all GPU commands issued during the rendering of the first frame.
  *     If none of these is set, no automatic GPU capture will occur.
+ *
+ *     If MVK_CONFIG_AUTO_GPU_CAPTURE_SCOPE is set to 2, to enable capturing the first frame,
+ *     the command queue from which the frame is captured is determined by the values of
+ *     defaultGPUCaptureScopeQueueFamilyIndex and defaultGPUCaptureScopeQueueIndex from MVKConfiguration,
+ *     or the corresponding MVK_CONFIG_DEFAULT_GPU_CAPTURE_SCOPE_QUEUE_FAMILY_INDEX and
+ *     MVK_CONFIG_DEFAULT_GPU_CAPTURE_SCOPE_QUEUE_INDEX runtime environment variable or
+ *     MoltenVK compile-time build settings.
+ *
+ *     If MVK_CONFIG_AUTO_GPU_CAPTURE_OUTPUT_FILE is also set, it is a filename (with a file
+ *     extension of .gputrace) where the automatic GPU capture should be saved. In this case,
+ *     the Xcode scheme need not have Metal GPU capture enabled, and in fact the app need not
+ *     be run under Xcode's control at all. This is useful in case the app cannot be run under
+ *     Xcode's control. A path starting with '~' can be used to place it in a user's home
+ *     directory, as in the shell. This feature requires Metal 3.0 (macOS 10.15, iOS 13).
+ *     In addition, for automatic file capture, the app requires at least a minimal Info.plist
+ *     file with the MetalCaptureEnabled key set to true. For command line executables (like
+ *     Vulkan CTS), the Info.plist file can be placed in the same directory as the executable.
  *
  * 6.  The MVK_CONFIG_TEXTURE_1D_AS_2D runtime environment variable or MoltenVK compile-time build
  *     setting controls whether MoltenVK should use a Metal 2D texture with a height of 1 for a
@@ -152,14 +164,14 @@ typedef unsigned long MTLLanguageVersion;
  *     Using a Metal 2D texture allows Vulkan 1D textures to support this additional functionality.
  *     This setting is enabled by default, and MoltenVK will use a Metal 2D texture for each Vulkan 1D image.
  *
- * 7.  The MVK_CONFIG_PREALLOCATE_DESCRIPTORS runtime environment variable or MoltenVK compile-time
- *     build setting controls whether MoltenVK should preallocate memory in each VkDescriptorPool
- *     according to the values of the VkDescriptorPoolSize parameters. Doing so may improve
- *     descriptor set allocation performance at a cost of preallocated application memory.
- *     If this setting is disabled, the descriptors required for a descriptor set will
- *     be dynamically allocated in application memory when the descriptor set itself is allocated.
- *     This setting is disabled by default, and MoltenVK will dynamically allocate descriptors
- *     when the containing descriptor set is allocated.
+ * 7.  The MVK_CONFIG_PREALLOCATE_DESCRIPTORS runtime environment variable or MoltenVK
+ *     compile-time build setting controls whether MoltenVK should preallocate memory during
+ *     vkCreateDescriptorPool() according to the values of the VkDescriptorPoolSize parameters.
+ *     Doing so may improve descriptor set allocation performance at a cost of preallocated
+ *     application memory. If this setting is disabled, the descriptors required for
+ *     a descriptor set will be dynamically allocated in application memory when the
+ *     descriptor set itself is allocated. This setting is enabled by default,
+ *     and MoltenVK will preallocate descriptors during vkCreateDescriptorPool().
  *
  * 8.  The MVK_CONFIG_USE_COMMAND_POOLING runtime environment variable or MoltenVK compile-time
  *     build setting controls whether MoltenVK should use pools to manage memory used when
@@ -190,6 +202,29 @@ typedef unsigned long MTLLanguageVersion;
  *     MVK_CONFIG_PERFORMANCE_LOGGING_FRAME_COUNT environment variable or MoltenVK
  *     compile-time build setting. This setting is disabled by default, and activity
  *     performance will be logged only when frame activity is logged.
+ *
+ * 11. The MVK_CONFIG_USE_METAL_ARGUMENT_BUFFERS runtime environment variable or MoltenVK
+ *     compile-time build setting controls whether MoltenVK should use Metal argument
+ *     buffers for resources defined in descriptor sets. Using Metal argument buffers
+ *     dramatically increases the number of buffers, textures and samplers that can be
+ *     bound to a pipeline shader, and in most cases improves performance.
+ *     If this setting is enabled, MoltenVK will use Metal argument buffers to bind
+ *     resources to the shaders. If this setting is disabled, MoltenVK will bind
+ *     resources to shaders discretely. This setting is enabled by default, and MoltenVK
+ *     will use Metal argument buffers.
+ *
+ * 12. The MVK_CONFIG_EMBED_INLINE_BLOCKS_IN_METAL_ARGUMENT_BUFFER runtime environment variable
+ *     or MoltenVK compile-time build setting controls whether MoltenVK should embed the contents
+ *     of inline-block descriptors directly in the Metal argument buffer, instead of writing the
+ *     contents of the descriptor in an intermediary MTLBuffer, which is then inserted into the
+ *     Metal argument buffer. Embedding inline-block descriptor content directly into the Metal
+ *     argument buffer improves efficiency and reduces resources, but currently does not cover
+ *     all types of possible inline content, and may cause errors in some cases. If this setting
+ *     is enabled, MoltenVK will embed inline-block descriptor content directly into the Metal
+ *     argument buffers. If this setting is disabled, MoltenVK will write inline-block content
+ *     to an intermediary MTLBuffer, and then insert that MTLBuffer into the Metal argument buffer.
+ *     This setting is disabled by default, and MoltenVK will use an intermediary MTLBuffer.
+ *     This setting only takes effect if the MVK_CONFIG_USE_METAL_ARGUMENT_BUFFERS setting is enabled.
  */
 typedef struct {
 
@@ -648,6 +683,7 @@ typedef struct {
 	VkBool32 simdPermute;						/**< If true, SIMD-group permutation functions (vote, ballot, shuffle) are supported in shaders. */
 	VkBool32 simdReduction;						/**< If true, SIMD-group reduction functions (arithmetic) are supported in shaders. */
     uint32_t minSubgroupSize;			        /**< The minimum number of threads in a SIMD-group. */
+	VkBool32 argumentBuffers;					/**< If true, argument buffers are supported and will be used for descriptor sets. */
 } MVKPhysicalDeviceMetalFeatures;
 
 /** MoltenVK performance of a particular type of activity. */

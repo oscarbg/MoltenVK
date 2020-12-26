@@ -48,7 +48,8 @@ void MVKPipelineLayout::bindDescriptorSets(MVKCommandEncoder* cmdEncoder,
 		MVKDescriptorSet* descSet = descriptorSets[dsIdx];
 		uint32_t dslIdx = firstSet + dsIdx;
 		MVKDescriptorSetLayout* dsl = _descriptorSetLayouts[dslIdx];
-		dsl->bindDescriptorSet(cmdEncoder, descSet, _dslMTLResourceIndexOffsets[dslIdx],
+		dsl->bindDescriptorSet(cmdEncoder, descSet, dslIdx,
+							   _dslMTLResourceIndexOffsets[dslIdx],
 							   dynamicOffsets, dynamicOffsetIndex);
 		if (!cmdEncoder) { setConfigurationResult(dsl->getConfigurationResult()); }
 	}
@@ -77,6 +78,8 @@ void MVKPipelineLayout::pushDescriptorSet(MVKCommandEncoder* cmdEncoder,
 
 void MVKPipelineLayout::populateShaderConverterContext(SPIRVToMSLConversionConfiguration& context) {
 	context.resourceBindings.clear();
+	context.discreteDescriptorSets.clear();
+	context.inlineUniformBlocks.clear();
 
     // Add resource bindings defined in the descriptor set layouts
 	uint32_t dslCnt = (uint32_t)_descriptorSetLayouts.size();
@@ -94,7 +97,7 @@ void MVKPipelineLayout::populateShaderConverterContext(SPIRVToMSLConversionConfi
 		spv::ExecutionModelFragment,
 		spv::ExecutionModelGLCompute
 	};
-	for (uint32_t i = kMVKShaderStageVertex; i < kMVKShaderStageMax; i++) {
+	for (uint32_t i = kMVKShaderStageVertex; i < kMVKShaderStageCount; i++) {
 		mvkPopulateShaderConverterContext(context,
 										  _pushConstantsMTLResourceIndexes.stages[i],
 										  models[i],
@@ -105,40 +108,40 @@ void MVKPipelineLayout::populateShaderConverterContext(SPIRVToMSLConversionConfi
 	}
 }
 
+// Add descriptor set layouts.
+// According to the Vulkan spec, VkDescriptorSetLayout is intended to be consumed when passed
+// to any Vulkan function, and may be safely destroyed by app immediately after. In order for
+// this pipeline layout to retain the VkDescriptorSetLayout, the MVKDescriptorSetLayout
+// instance is retained, so that it will live on here after it has been destroyed by the API.
+
+// If we're not using Metal argument buffers, accumulate the resource index offsets used
+// by the corresponding DSL, and associating the current accumulated resource index offsets
+// with each DSL as it is added. If we're using Metal argument buffers, just accumulate the
+// number of Metal argument buffers we need for each stage.
+// The final accumulation of resource index offsets becomes the resource index offsets that
+// will be used for push contants and any additional auxilliary buffers.
 MVKPipelineLayout::MVKPipelineLayout(MVKDevice* device,
                                      const VkPipelineLayoutCreateInfo* pCreateInfo) : MVKVulkanAPIDeviceObject(device) {
-
-    // Add descriptor set layouts, accumulating the resource index offsets used by the
-    // corresponding DSL, and associating the current accumulated resource index offsets
-    // with each DSL as it is added. The final accumulation of resource index offsets
-    // becomes the resource index offsets that will be used for push contants.
-
-    // According to the Vulkan spec, VkDescriptorSetLayout is intended to be consumed when passed
-	// to any Vulkan function, and may be safely destroyed by app immediately after. In order for
-	// this pipeline layout to retain the VkDescriptorSetLayout, the MVKDescriptorSetLayout
-	// instance is retained, so that it will live on here after it has been destroyed by the API.
-
-	_descriptorSetLayouts.reserve(pCreateInfo->setLayoutCount);
-	for (uint32_t i = 0; i < pCreateInfo->setLayoutCount; i++) {
-		MVKDescriptorSetLayout* pDescSetLayout = (MVKDescriptorSetLayout*)pCreateInfo->pSetLayouts[i];
-		pDescSetLayout->retain();
-		_descriptorSetLayouts.push_back(pDescSetLayout);
-		_dslMTLResourceIndexOffsets.push_back(_pushConstantsMTLResourceIndexes);
-		_pushConstantsMTLResourceIndexes += pDescSetLayout->_mtlResourceCounts;
-	}
-
-	// Add push constants
-	_pushConstants.reserve(pCreateInfo->pushConstantRangeCount);
-	for (uint32_t i = 0; i < pCreateInfo->pushConstantRangeCount; i++) {
-		_pushConstants.push_back(pCreateInfo->pPushConstantRanges[i]);
+	uint32_t dslCnt = pCreateInfo->setLayoutCount;
+	_descriptorSetLayouts.resize(dslCnt);
+	_dslMTLResourceIndexOffsets.resize(dslCnt);
+	for (uint32_t dslIdx = 0; dslIdx < dslCnt; dslIdx++) {
+		MVKDescriptorSetLayout* mvkDSL = (MVKDescriptorSetLayout*)pCreateInfo->pSetLayouts[dslIdx];
+		mvkDSL->retain();
+		_descriptorSetLayouts[dslIdx] = mvkDSL;
+		if (mvkDSL->isUsingMetalArgumentBuffer()) {
+			_pushConstantsMTLResourceIndexes.addArgumentBuffer(mvkDSL->_mtlResourceCounts);
+		} else {
+			_dslMTLResourceIndexOffsets[dslIdx] = _pushConstantsMTLResourceIndexes;
+			_pushConstantsMTLResourceIndexes += mvkDSL->_mtlResourceCounts;
+		}
 	}
 
 	// Set implicit buffer indices
 	// FIXME: Many of these are optional. We shouldn't set the ones that aren't
-	// present--or at least, we should move the ones that are down to avoid
-	// running over the limit of available buffers. But we can't know that
-	// until we compile the shaders.
-	for (uint32_t i = kMVKShaderStageVertex; i < kMVKShaderStageMax; i++) {
+	// present--or at least, we should move the ones that are down to avoid running over
+	// the limit of available buffers. But we can't know that until we compile the shaders.
+	for (uint32_t i = kMVKShaderStageVertex; i < kMVKShaderStageCount; i++) {
 		_swizzleBufferIndex.stages[i] = _pushConstantsMTLResourceIndexes.stages[i].bufferIndex + 1;
 		_bufferSizeBufferIndex.stages[i] = _swizzleBufferIndex.stages[i] + 1;
 		_indirectParamsIndex.stages[i] = _bufferSizeBufferIndex.stages[i] + 1;
@@ -148,6 +151,13 @@ MVKPipelineLayout::MVKPipelineLayout(MVKDevice* device,
 			_tessCtlLevelBufferIndex = _tessCtlPatchOutputBufferIndex + 1;
 		}
 	}
+
+	// Add push constants
+	_pushConstants.reserve(pCreateInfo->pushConstantRangeCount);
+	for (uint32_t i = 0; i < pCreateInfo->pushConstantRangeCount; i++) {
+		_pushConstants.push_back(pCreateInfo->pPushConstantRanges[i]);
+	}
+
 	// Since we currently can't use multiview with tessellation or geometry shaders,
 	// to conserve the number of buffer bindings, use the same bindings for the
 	// view range buffer as for the indirect paramters buffer.
@@ -164,7 +174,7 @@ MVKPipelineLayout::~MVKPipelineLayout() {
 
 void MVKPipeline::bindPushConstants(MVKCommandEncoder* cmdEncoder) {
 	if (cmdEncoder) {
-		for (uint32_t i = kMVKShaderStageVertex; i < kMVKShaderStageMax; i++) {
+		for (uint32_t i = kMVKShaderStageVertex; i < kMVKShaderStageCount; i++) {
 			cmdEncoder->getPushConstants(mvkVkShaderStageFlagBitsFromMVKShaderStage(MVKShaderStage(i)))->setMTLBufferIndex(_pushConstantsMTLResourceIndexes.stages[i].bufferIndex);
 		}
 	}
@@ -367,7 +377,7 @@ MVKGraphicsPipeline::MVKGraphicsPipeline(MVKDevice* device,
 	}
 
 	// Track dynamic state in _dynamicStateEnabled array
-	mvkClear(_dynamicStateEnabled, kMVKVkDynamicStateCount);	// start with all dynamic state disabled
+	mvkClear(&_dynamicStateEnabled);	// start with all dynamic state disabled
 	const VkPipelineDynamicStateCreateInfo* pDS = pCreateInfo->pDynamicState;
 	if (pDS) {
 		for (uint32_t i = 0; i < pDS->dynamicStateCount; i++) {
@@ -1451,6 +1461,8 @@ void MVKGraphicsPipeline::initMVKShaderConverterContext(SPIRVToMSLConversionConf
     shaderContext.options.mslOptions.texel_buffer_texture_width = _device->_pMetalFeatures->maxTextureDimension;
     shaderContext.options.mslOptions.r32ui_linear_texture_alignment = (uint32_t)_device->getVkFormatTexelBufferAlignment(VK_FORMAT_R32_UINT, this);
 	shaderContext.options.mslOptions.texture_buffer_native = _device->_pMetalFeatures->textureBuffers;
+	shaderContext.options.mslOptions.argument_buffers = supportsMetalArgumentBuffers();
+	shaderContext.options.mslOptions.force_active_argument_buffer_resources = supportsMetalArgumentBuffers();
 
     MVKPipelineLayout* layout = (MVKPipelineLayout*)pCreateInfo->layout;
     layout->populateShaderConverterContext(shaderContext);
@@ -1693,6 +1705,8 @@ MVKMTLFunction MVKComputePipeline::getMTLFunction(const VkComputePipelineCreateI
 	shaderContext.options.mslOptions.dispatch_base = _allowsDispatchBase;
 	shaderContext.options.mslOptions.texture_1D_as_2D = mvkTreatTexture1DAs2D();
     shaderContext.options.mslOptions.fixed_subgroup_size = mvkIsAnyFlagEnabled(pSS->flags, VK_PIPELINE_SHADER_STAGE_CREATE_ALLOW_VARYING_SUBGROUP_SIZE_BIT_EXT) ? 0 : _device->_pMetalFeatures->maxSubgroupSize;
+	shaderContext.options.mslOptions.argument_buffers = supportsMetalArgumentBuffers();
+	shaderContext.options.mslOptions.force_active_argument_buffer_resources = supportsMetalArgumentBuffers();
 #if MVK_MACOS
     shaderContext.options.mslOptions.emulate_subgroups = !_device->_pMetalFeatures->simdPermute;
 #endif
@@ -2102,10 +2116,18 @@ namespace mvk {
 	}
 
 	template<class Archive>
+	void serialize(Archive & archive, DescriptorBinding& db) {
+		archive(db.descriptorSet,
+				db.binding);
+	}
+
+	template<class Archive>
 	void serialize(Archive & archive, SPIRVToMSLConversionConfiguration& ctx) {
 		archive(ctx.options,
 				ctx.shaderInputs,
-				ctx.resourceBindings);
+				ctx.resourceBindings,
+				ctx.discreteDescriptorSets,
+				ctx.inlineUniformBlocks);
 	}
 
 	template<class Archive>

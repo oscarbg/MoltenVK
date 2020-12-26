@@ -20,9 +20,11 @@
 
 #include "MVKDescriptor.h"
 #include "MVKSmallVector.h"
+#include "MVKBitArray.h"
 #include <unordered_set>
 #include <unordered_map>
 #include <vector>
+#include <mutex>
 
 class MVKDescriptorPool;
 class MVKPipelineLayout;
@@ -31,6 +33,13 @@ class MVKCommandEncoder;
 
 #pragma mark -
 #pragma mark MVKDescriptorSetLayout
+
+/** Tracks a MTLArgumentEncoder and its offset into a Metal argument buffer. */
+typedef struct MVKMTLArgumentEncoder {
+	id<MTLArgumentEncoder> mtlArgumentEncoder = nil;
+	NSUInteger argumentBufferOffset = 0;
+	~MVKMTLArgumentEncoder() { [mtlArgumentEncoder release]; }
+} MVKMTLArgumentEncoder;
 
 /** Represents a Vulkan descriptor set layout. */
 class MVKDescriptorSetLayout : public MVKVulkanAPIDeviceObject {
@@ -46,6 +55,7 @@ public:
 	/** Encodes this descriptor set layout and the specified descriptor set on the specified command encoder. */
 	void bindDescriptorSet(MVKCommandEncoder* cmdEncoder,
 						   MVKDescriptorSet* descSet,
+						   uint32_t descSetLayoutIndex,
 						   MVKShaderResourceBinding& dslMTLRezIdxOffsets,
 						   MVKArrayRef<uint32_t> dynamicOffsets,
 						   uint32_t& dynamicOffsetIndex);
@@ -69,27 +79,34 @@ public:
                                         uint32_t dslIndex);
 
 	/** Returns true if this layout is for push descriptors only. */
-	bool isPushDescriptorLayout() const { return _isPushDescriptorLayout; }
+	inline bool isPushDescriptorLayout() const { return _isPushDescriptorLayout; }
+
+	/** Returns whether this layout is using an argument buffer. */
+	inline bool isUsingMetalArgumentBuffer() const  { return supportsMetalArgumentBuffers() && !isPushDescriptorLayout(); };
 
 	MVKDescriptorSetLayout(MVKDevice* device, const VkDescriptorSetLayoutCreateInfo* pCreateInfo);
 
 protected:
-
-	friend class MVKDescriptorSetLayoutBinding;
 	friend class MVKPipelineLayout;
-	friend class MVKDescriptorSet;
 	friend class MVKDescriptorPool;
+	friend class MVKDescriptorSetLayoutBinding;
+	friend class MVKDescriptorSet;
 
 	void propagateDebugName() override {}
 	inline uint32_t getDescriptorCount() { return _descriptorCount; }
-	inline uint32_t getDescriptorIndex(uint32_t binding, uint32_t elementIndex = 0) { return _bindingToDescriptorIndex[binding] + elementIndex; }
 	inline MVKDescriptorSetLayoutBinding* getBinding(uint32_t binding) { return &_bindings[_bindingToIndex[binding]]; }
+	inline uint32_t getDescriptorIndex(uint32_t binding, uint32_t elementIndex = 0) { return getBinding(binding)->getDescriptorIndex(elementIndex); }
+	inline NSUInteger getArgumentBufferSize() { return _argumentBufferSize; }
 	const VkDescriptorBindingFlags* getBindingFlags(const VkDescriptorSetLayoutCreateInfo* pCreateInfo);
+	void bindMetalArgumentBuffer(MVKDescriptorSet* descSet);
+	void initMTLArgumentEncoders();
 
 	MVKSmallVector<MVKDescriptorSetLayoutBinding> _bindings;
 	std::unordered_map<uint32_t, uint32_t> _bindingToIndex;
-	std::unordered_map<uint32_t, uint32_t> _bindingToDescriptorIndex;
 	MVKShaderResourceBinding _mtlResourceCounts;
+	MVKMTLArgumentEncoder _argumentEncoder[kMVKShaderStageCount];
+	NSUInteger _argumentBufferSize;
+	std::mutex _argEncodingLock;
 	uint32_t _descriptorCount;
 	bool _isPushDescriptorLayout;
 };
@@ -126,22 +143,29 @@ public:
 			  VkBufferView* pTexelBufferView,
 			  VkWriteDescriptorSetInlineUniformBlockEXT* pInlineUniformBlock);
 
-	MVKDescriptorSet(MVKDescriptorSetLayout* layout,
-					 uint32_t variableDescriptorCount,
-					 MVKDescriptorPool* pool);
+	/** Returns an MTLBuffer region allocation. */
+	const MVKMTLBufferAllocation* acquireMTLBufferRegion(NSUInteger length);
 
-	~MVKDescriptorSet() override;
+	MVKDescriptorSet(MVKDescriptorPool* pool);
 
 protected:
-	friend class MVKDescriptorSetLayoutBinding;
 	friend class MVKDescriptorPool;
+	friend class MVKDescriptorSetLayout;
+	friend class MVKDescriptorSetLayoutBinding;
 
 	void propagateDebugName() override {}
 	MVKDescriptor* getDescriptor(uint32_t binding, uint32_t elementIndex = 0);
+	VkResult allocate(MVKDescriptorSetLayout* layout,
+					  uint32_t variableDescriptorCount,
+					  NSUInteger mtlArgumentBufferOffset);
+	void free(bool isPoolReset);
+	id<MTLBuffer> getMetalArgumentBuffer();
+	inline NSUInteger getMetalArgumentBufferOffset() { return _mtlArgumentBufferOffset; }
 
+	MVKSmallVector<MVKDescriptor*> _descriptors;
 	MVKDescriptorSetLayout* _layout;
 	MVKDescriptorPool* _pool;
-	MVKSmallVector<MVKDescriptor*> _descriptors;
+	NSUInteger _mtlArgumentBufferOffset;
 	uint32_t _variableDescriptorCount;
 };
 
@@ -162,7 +186,7 @@ public:
 								   VkDescriptorType descriptorType);
 
 protected:
-	friend class MVKPreallocatedDescriptors;
+	friend class MVKDescriptorPool;
 
 	VkResult allocateDescriptor(MVKDescriptor** pMVKDesc);
 	bool findDescriptor(uint32_t endIndex, MVKDescriptor** pMVKDesc);
@@ -173,41 +197,6 @@ protected:
 	MVKSmallVector<bool> _availability;
 	uint32_t _nextAvailableIndex;
 	bool _supportAvailability;
-};
-
-
-#pragma mark -
-#pragma mark MVKPreallocatedDescriptors
-
-/** Support class for MVKDescriptorPool that holds preallocated instances of all concrete descriptor classes. */
-class MVKPreallocatedDescriptors : public MVKBaseObject {
-
-public:
-
-	/** Returns the Vulkan API opaque object controlling this object. */
-	MVKVulkanAPIObject* getVulkanAPIObject() override { return nullptr; };
-
-	MVKPreallocatedDescriptors(const VkDescriptorPoolCreateInfo* pCreateInfo);
-
-protected:
-	friend class MVKDescriptorPool;
-
-	VkResult allocateDescriptor(VkDescriptorType descriptorType, MVKDescriptor** pMVKDesc);
-	void freeDescriptor(MVKDescriptor* mvkDesc);
-	void reset();
-
-	MVKDescriptorTypePreallocation<MVKUniformBufferDescriptor> _uniformBufferDescriptors;
-	MVKDescriptorTypePreallocation<MVKStorageBufferDescriptor> _storageBufferDescriptors;
-	MVKDescriptorTypePreallocation<MVKUniformBufferDynamicDescriptor> _uniformBufferDynamicDescriptors;
-	MVKDescriptorTypePreallocation<MVKStorageBufferDynamicDescriptor> _storageBufferDynamicDescriptors;
-	MVKDescriptorTypePreallocation<MVKInlineUniformBlockDescriptor> _inlineUniformBlockDescriptors;
-	MVKDescriptorTypePreallocation<MVKSampledImageDescriptor> _sampledImageDescriptors;
-	MVKDescriptorTypePreallocation<MVKStorageImageDescriptor> _storageImageDescriptors;
-	MVKDescriptorTypePreallocation<MVKInputAttachmentDescriptor> _inputAttachmentDescriptors;
-	MVKDescriptorTypePreallocation<MVKSamplerDescriptor> _samplerDescriptors;
-	MVKDescriptorTypePreallocation<MVKCombinedImageSamplerDescriptor> _combinedImageSamplerDescriptors;
-	MVKDescriptorTypePreallocation<MVKUniformTexelBufferDescriptor> _uniformTexelBufferDescriptors;
-	MVKDescriptorTypePreallocation<MVKStorageTexelBufferDescriptor> _storageTexelBufferDescriptors;
 };
 
 
@@ -245,13 +234,30 @@ protected:
 	void propagateDebugName() override {}
 	VkResult allocateDescriptorSet(MVKDescriptorSetLayout* mvkDSL, uint32_t variableDescriptorCount, VkDescriptorSet* pVKDS);
 	const uint32_t* getVariableDecriptorCounts(const VkDescriptorSetAllocateInfo* pAllocateInfo);
-	void freeDescriptorSet(MVKDescriptorSet* mvkDS);
+	void freeDescriptorSet(MVKDescriptorSet* mvkDS, bool isPoolReset);
 	VkResult allocateDescriptor(VkDescriptorType descriptorType, MVKDescriptor** pMVKDesc);
 	void freeDescriptor(MVKDescriptor* mvkDesc);
+	static NSUInteger getDescriptorByteCountForMetalArgumentBuffer(VkDescriptorType descriptorType);
+	static NSUInteger getMaxInlineBlockSize(MVKDevice* device, const VkDescriptorPoolCreateInfo* pCreateInfo);
 
-	uint32_t _maxSets;
-	std::unordered_set<MVKDescriptorSet*> _allocatedSets;
-	MVKPreallocatedDescriptors* _preallocatedDescriptors;
+	MVKSmallVector<MVKDescriptorSet> _descriptorSets;
+	MVKBitArray _descriptorSetAvailablility;
+	id<MTLBuffer> _mtlArgumentBuffer;
+	NSUInteger _nextMTLArgumentBufferOffset;
+	MVKMTLBufferAllocator _inlineBlockMTLBufferAllocator;
+
+	MVKDescriptorTypePreallocation<MVKUniformBufferDescriptor> _uniformBufferDescriptors;
+	MVKDescriptorTypePreallocation<MVKStorageBufferDescriptor> _storageBufferDescriptors;
+	MVKDescriptorTypePreallocation<MVKUniformBufferDynamicDescriptor> _uniformBufferDynamicDescriptors;
+	MVKDescriptorTypePreallocation<MVKStorageBufferDynamicDescriptor> _storageBufferDynamicDescriptors;
+	MVKDescriptorTypePreallocation<MVKInlineUniformBlockDescriptor> _inlineUniformBlockDescriptors;
+	MVKDescriptorTypePreallocation<MVKSampledImageDescriptor> _sampledImageDescriptors;
+	MVKDescriptorTypePreallocation<MVKStorageImageDescriptor> _storageImageDescriptors;
+	MVKDescriptorTypePreallocation<MVKInputAttachmentDescriptor> _inputAttachmentDescriptors;
+	MVKDescriptorTypePreallocation<MVKSamplerDescriptor> _samplerDescriptors;
+	MVKDescriptorTypePreallocation<MVKCombinedImageSamplerDescriptor> _combinedImageSamplerDescriptors;
+	MVKDescriptorTypePreallocation<MVKUniformTexelBufferDescriptor> _uniformTexelBufferDescriptors;
+	MVKDescriptorTypePreallocation<MVKStorageTexelBufferDescriptor> _storageTexelBufferDescriptors;
 };
 
 
@@ -304,15 +310,3 @@ void mvkUpdateDescriptorSets(uint32_t writeCount,
 void mvkUpdateDescriptorSetWithTemplate(VkDescriptorSet descriptorSet,
 										VkDescriptorUpdateTemplateKHR updateTemplate,
 										const void* pData);
-
-/**
- * If the shader stage binding has a binding defined for the specified stage, populates
- * the context at the descriptor set binding from the shader stage resource binding.
- */
-void mvkPopulateShaderConverterContext(mvk::SPIRVToMSLConversionConfiguration& context,
-									   MVKShaderStageResourceBinding& ssRB,
-									   spv::ExecutionModel stage,
-									   uint32_t descriptorSetIndex,
-									   uint32_t bindingIndex,
-									   uint32_t count,
-									   MVKSampler* immutableSampler);

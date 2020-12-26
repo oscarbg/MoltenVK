@@ -13,6 +13,28 @@ For best results, use a Markdown reader.*
 
 
 
+MoltenVK 1.1.2
+--------------
+
+Released TBD
+
+- Add support for using Metal argument buffers for shader resources, by setting 
+  `MVK_CONFIG_USE_METAL_ARGUMENT_BUFFERS` environment variable (enabled by default).
+- To improve performance during descriptor set allocations, preallocate memory for descriptor sets, descriptors, 
+  and the Metal argument buffer (one `MTLBuffer` per descriptor pool) during `vkCreateDescriptorPool()`.
+- Add support for embedding inline uniform content directly in Metal argument buffers, by setting 
+  `MVK_CONFIG_EMBED_INLINE_BLOCKS_IN_METAL_ARGUMENT_BUFFER` environment variable (disabled by default).
+- Support fast math on MSL compiler via `MVKConfiguration::fastMathEnabled` configuration 
+  setting and `MVK_CONFIG_FAST_MATH_ENABLED` environment variable (both disabled by default).
+  - Add ability to automatically capture first GPU frame by setting `MVK_CONFIG_AUTO_GPU_CAPTURE_SCOPE` to `2`.
+  - Add `MVKBitArray` and remove `MVKVector`.
+- Support _GitHub Actions_ for CI builds on pull requests.
+- Remove support for _Travis-CI_.
+- `Makefile` and `fetchDependencies` support `xcpretty` (if available)
+- Update `VK_MVK_MOLTENVK_SPEC_VERSION` to `30`.
+
+
+
 MoltenVK 1.1.1
 --------------
 
@@ -21,7 +43,7 @@ Released 2010/12/09
 - Add support for extensions:
 	- `VK_KHR_sampler_mirror_clamp_to_edge` (iOS)
 	- `VK_KHR_timeline_semaphore`
-	- `VK_EXT_descriptor_indexing` (initial release limited to Metal Tier 1: 96/128 textures, 16 samplers)
+	- `VK_EXT_descriptor_indexing`
 	- `VK_EXT_post_depth_coverage` (macOS)
 	- `VK_EXT_private_data`
 	- `VK_EXT_subgroup_size_control`
