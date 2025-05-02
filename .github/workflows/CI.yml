@@ -19,7 +19,8 @@ jobs:
         os: [ "macos-15" ]
         platform: [ "all", "macos", "ios" ]
         upload_artifacts: [ true ]
-        select_xcode: [ false ]
+        xcode: ["16.3.0"]
+        select_xcode: [ true ]
 
         # Legacy build. Up to 3 versions behind latest (or beta).
         include:
