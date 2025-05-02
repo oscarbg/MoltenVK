@@ -123,6 +123,10 @@ bool mvk::compile(const string& mslSourceCode,
 
 		MTLCompileOptions* mtlCompileOptions  = [[MTLCompileOptions new] autorelease];
 		mtlCompileOptions.languageVersion = mslVerEnum;
+		//https://developer.apple.com/documentation/metal/mtlcompileoptions/enablelogging
+		//iOS 18.0 macOS 15.0
+		//Because logging incurs overhead, regardless of whether the system prints messages, you must explicitly enable logging.
+		mtlCompileOptions.enableLogging = true;
 		NSError* err = nil;
 		id<MTLLibrary> mtlLib = [[mtlDevs[0] newLibraryWithSource: @(mslSourceCode.c_str())
 														  options: mtlCompileOptions
