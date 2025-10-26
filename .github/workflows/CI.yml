@@ -16,7 +16,7 @@ jobs:
     strategy:
       matrix:
         # Primary build on latest macOS and its default Xcode version
-        os: [ "macos-latest" ]
+        os: [ "macos-26" ]
         platform: [ "all", "macos", "ios" ]
         upload_artifacts: [ true ]
         select_xcode: [ false ]
@@ -24,7 +24,7 @@ jobs:
 
         include:
           # macOS build with private APIs enabled.
-          - os: "macos-latest"
+          - os: "macos-26"
             platform: "macos"
             upload_artifacts: true
             select_xcode: false
@@ -127,7 +127,7 @@ jobs:
     strategy:
       matrix:
         # Primary build on latest macOS and its default Xcode version
-        os: [ "macos-latest" ]
+        os: [ "macos-26" ]
         # platform: [ "all", "macos", "ios" ]
         config: [Debug, Release]
       fail-fast: false
