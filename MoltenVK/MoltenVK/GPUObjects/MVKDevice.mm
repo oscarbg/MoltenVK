@@ -897,7 +897,7 @@ void MVKPhysicalDevice::getProperties(VkPhysicalDeviceProperties2* properties) {
 	supportedProps13.integerDotProduct8BitSignedAccelerated = false;
 	supportedProps13.integerDotProduct8BitMixedSignednessAccelerated = false;
 	supportedProps13.integerDotProduct4x8BitPackedUnsignedAccelerated = false;
-	supportedProps13.integerDotProduct4x8BitPackedSignedAccelerated = false;
+	supportedProps13.integerDotProduct4x8BitPackedSignedAccelerated = true;
 	supportedProps13.integerDotProduct4x8BitPackedMixedSignednessAccelerated = false;
 	supportedProps13.integerDotProduct16BitUnsignedAccelerated = false;
 	supportedProps13.integerDotProduct16BitSignedAccelerated = false;
