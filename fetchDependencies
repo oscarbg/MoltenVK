@@ -88,8 +88,8 @@
 #              spirv-tools header files and repackages the Templates/spirv-tools/build.zip
 #              file when the spirv-tools library version is upgraded.
 #
-#      --spirv-cross-root path
-#              "path" specifies a directory path to a KhronosGroup/SPIRV-Cross repository.
+#      --ross-root path
+#              "path" specifies a directory path to a KhronosGroup/ross repository.
 #              This repository does not have to be built.
 #
 #      -v      verbose output
@@ -218,7 +218,7 @@ while (( "$#" )); do
          V_HEADERS_ROOT=$2
          shift 2
          ;;
-       --spirv-cross-root)
+       --ross-root)
          SPIRV_CROSS_ROOT=$2
          shift 2
          ;;
@@ -336,7 +336,7 @@ if [ ! "$SPIRV_CROSS_ROOT" = "" ]; then
 	rm -rf ${REPO_NAME}
 	ln -sfn ${SPIRV_CROSS_ROOT} ${REPO_NAME}
 else
-	REPO_URL="https://github.com/KhronosGroup/${REPO_NAME}.git"
+	REPO_URL="https://github.com/oscarbg/${REPO_NAME}.git"
 	REPO_REV=$(cat "${EXT_REV_DIR}/${REPO_NAME}_repo_revision")
 
 	update_repo ${REPO_NAME} ${REPO_URL} ${REPO_REV}
